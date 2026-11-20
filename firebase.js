@@ -18,12 +18,17 @@ window.cloudRanking=()=>{const el=document.getElementById('onlineRanking');if(el
 window.cloudLogout=async()=>{if(auth)await auth.signOut()};
 try{
   if(!firebaseConfig.apiKey || firebaseConfig.apiKey==='COLE_AQUI')throw new Error('Preencha firebase-config.js.');
-  const [{initializeApp},{getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut},{getFirestore,doc,getDoc,setDoc,serverTimestamp}]=await Promise.all([
+  const [{initializeApp},{getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut},{getFirestore,doc,getDoc}]=await Promise.all([
     import('https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js'),
     import('https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js'),
     import('https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js')
   ]);
+  const {getFunctions,httpsCallable}=await import('https://www.gstatic.com/firebasejs/11.10.0/firebase-functions.js');
   const app=initializeApp(firebaseConfig);
+  const functions=getFunctions(app,'us-central1');
+  const bootstrap=httpsCallable(functions,'bootstrapPlayer');
+  const ranking=httpsCallable(functions,'getRanking');
+  window.cloudRanking=async()=>{const el=document.getElementById('onlineRanking');if(!el)return;el.textContent='Carregando ranking...';try{const r=await ranking({});el.replaceChildren();for(const [i,p] of r.data.players.entries()){const row=document.createElement('p');row.textContent=`${i+1}. ${p.username} | 🔄 ${p.rebirth} | 🎯 ${p.hits} | ⭐ ${p.level}`;el.append(row)}}catch(e){el.textContent='Ranking indisponível: '+e.message}};
   auth=getAuth(app);db=getFirestore(app);
   const login=async(signup)=>{
     const username=nameInput.value.trim(),password=passInput.value;
@@ -33,9 +38,7 @@ try{
     try{
       if(signup){
         const result=await createUserWithEmailAndPassword(auth,internalEmail(username),password);
-        // O estado inicial é criado somente para a conta recém-registrada.
-        const state=initial();state.name=username;
-        await setDoc(doc(db,'players',result.user.uid),{state,username,updatedAt:serverTimestamp()});
+        await bootstrap({username});
       }else await signInWithEmailAndPassword(auth,internalEmail(username),password);
       say('Carregando sua conta...');
     }catch(e){
@@ -45,16 +48,8 @@ try{
   };
   enter.onclick=()=>login(false);create.onclick=()=>login(true);
   passInput.addEventListener('keydown',e=>{if(e.key==='Enter')login(false)});
-  window.cloudSave=(state)=>{
-    if(!currentUser||loading||!window.cloudReady)return;
-    const uid=currentUser.uid,token=sessionId,snapshot=JSON.parse(JSON.stringify(state));
-    clearTimeout(saveTimer);
-    saveTimer=setTimeout(async()=>{
-      if(!currentUser||currentUser.uid!==uid||sessionId!==token)return;
-      try{await setDoc(doc(db,'players',uid),{state:snapshot,username:snapshot.name,updatedAt:serverTimestamp()})}
-      catch(e){window.targetToast?.('Não foi possível salvar na nuvem: '+e.code)}
-    },900);
-  };
+  // SEGURANÇA: salvamento direto bloqueado. Gameplay precisa migrar para chamadas de servidor.
+  window.cloudSave=()=>{};
   onAuthStateChanged(auth,async(user)=>{
     clearTimeout(saveTimer);const token=++sessionId;
     currentUser=user;window.cloudReady=false;gate.hidden=false;
@@ -64,10 +59,9 @@ try{
       const snapshot=await getDoc(doc(db,'players',user.uid));
       if(sessionId!==token)return;
       if(!snapshot.exists()){
-        // Se a conta Auth existir sem documento, nunca usar save de outra pessoa.
-        const state=initial();state.name=user.email.split('@')[0];
-        await setDoc(doc(db,'players',user.uid),{state,username:state.name,updatedAt:serverTimestamp()});
-        window.setTargetState(state);
+        await bootstrap({username:user.email.split('@')[0]});
+        const fresh=await getDoc(doc(db,'players',user.uid));
+        window.setTargetState(fresh.data().state);
       }else{
         const data=snapshot.data();
         const state=data.state||initial();
@@ -76,6 +70,7 @@ try{
       }
       if(sessionId!==token)return;
       window.cloudReady=true;gate.hidden=true;
+      window.targetToast?.('⚠️ Modo de teste: moedas e XP desta sessão não são salvos.');
       const status=document.getElementById('authStatus');if(status)status.textContent='Conectado: '+window.getTargetState().name;
       window.targetToast?.('☁️ Bem-vindo, '+window.getTargetState().name+'!');
     }catch(e){say('Não foi possível carregar a conta: '+(e.code||e.message))}
