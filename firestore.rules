@@ -1,17 +1,55 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
+    // SUBSTITUA pelo UID real da conta Joao antes de publicar.
+    function owner() { return request.auth != null && request.auth.uid == '1VKQY4YpScWwJnpPBVjp8J5J6Cw1'; }
+    function admin() { return owner() || (request.auth != null && exists(/databases/$(database)/documents/roles/$(request.auth.uid)) && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.admin == true); }
+    function signed() { return request.auth != null; }
+    function validState(s) {
+      return s is map && s.money is number && s.money >= 0 && s.money <= 1000000000000
+        && s.hits is int && s.hits >= 0 && s.hits <= 1000000000
+        && s.rebirth is int && s.rebirth >= 0 && s.rebirth <= 1000000
+        && s.level is int && s.level >= 1 && s.level <= 20;
+    }
     match /players/{uid} {
-      allow read: if signedIn() && request.auth.uid == uid;
-      allow write: if false; // Somente Admin SDK nas Cloud Functions
+      allow read: if signed(); // Ranking público para jogadores autenticados.
+      allow create: if signed() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['username','usernameLower','state','resetVersion','createdAt','updatedAt'])
+        && request.resource.data.username is string
+        && request.resource.data.username.size() >= 3 && request.resource.data.username.size() <= 20
+        && request.resource.data.usernameLower is string
+        && request.resource.data.resetVersion == 0
+        && validState(request.resource.data.state)
+        && request.resource.data.state.money == 0 && request.resource.data.state.hits == 0;
+      // Spark: o cliente salva o próprio jogo. NÃO impede trapaças na economia.
+      allow update: if admin() || (signed() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state','updatedAt','resetVersion'])
+        && request.resource.data.resetVersion == resource.data.resetVersion
+        && validState(request.resource.data.state));
+      allow delete: if false;
     }
-    match /roles/{uid} { allow read, write: if false; }
+    match /roles/{uid} {
+      allow read: if signed() && (request.auth.uid == uid || owner());
+      allow create, update: if owner() && uid != request.auth.uid
+        && request.resource.data.keys().hasOnly(['admin'])
+        && request.resource.data.admin is bool;
+      allow delete: if owner() && uid != request.auth.uid;
+    }
     match /global/{docId} {
-      allow read: if signedIn() && docId in ['event','announcement'];
-      allow write: if false;
+      allow read: if signed() && docId in ['event','announcement'];
+      allow create, update: if admin() && docId in ['event','announcement']
+        && (docId == 'event' ? (
+          request.resource.data.keys().hasOnly(['kind','endsAt','updatedAt'])
+          && request.resource.data.kind in ['coins','luck','galaxy','none']
+          && request.resource.data.endsAt is number
+          && request.resource.data.endsAt >= 0
+        ) : (
+          request.resource.data.keys().hasOnly(['message','updatedAt'])
+          && request.resource.data.message is string
+          && request.resource.data.message.size() <= 180
+        ));
+      allow delete: if false;
     }
-    match /adminAudit/{id} { allow read, write: if false; }
     match /{document=**} { allow read, write: if false; }
   }
 }

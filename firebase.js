@@ -1,79 +1,21 @@
-import { firebaseConfig } from './firebase-config.js';
-const gate=document.getElementById('loginGate');
-const notice=document.getElementById('loginError');
-const nameInput=document.getElementById('loginUsername');
-const passInput=document.getElementById('loginPassword');
-const enter=document.getElementById('loginEnter');
-const create=document.getElementById('loginCreate');
-let auth, db, currentUser=null, saveTimer, loading=false, sessionId=0;
-const say=(message)=>{notice.textContent=message};
-const buttons=(busy)=>{enter.disabled=busy;create.disabled=busy};
-const normalize=(value)=>value.trim().toLowerCase();
-const valid=(value)=>/^[a-zA-Z0-9_]{3,20}$/.test(value);
-// Email técnico interno para Firebase Auth. Não é um e-mail de contato.
-const internalEmail=(username)=>`${normalize(username)}@players.ultimate-target.example.com`;
+import {firebaseConfig} from './firebase-config.js';
+import {initializeApp,getApps,getApp} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
+import {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+import {getFirestore,doc,getDoc,setDoc,updateDoc,onSnapshot,collection,query,orderBy,limit,serverTimestamp} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+const app=getApps().length?getApp():initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+const gate=document.getElementById('loginGate'),notice=document.getElementById('loginError'),nameInput=document.getElementById('loginUsername'),passInput=document.getElementById('loginPassword');
+const enter=document.getElementById('loginEnter'),create=document.getElementById('loginCreate');
 const initial=()=>({name:'Jogador',money:0,rebirth:0,hits:0,combo:0,level:1,xp:0,totalxp:0,weapon:0,world:0,upgrades:{power:0,luck:0,xp:0,pet:0},pets:[],equipped:[],achieved:[],claimed:[],finalClaimed:false,mutations:[],settings:{sound:true}});
-window.cloudSave=()=>{};
-window.cloudRanking=()=>{const el=document.getElementById('onlineRanking');if(el)el.textContent='🏆 Ranking global em preparação: será liberado quando a pontuação for validada no servidor.'};
-window.cloudLogout=async()=>{if(auth)await auth.signOut()};
-try{
-  if(!firebaseConfig.apiKey || firebaseConfig.apiKey==='COLE_AQUI')throw new Error('Preencha firebase-config.js.');
-  const [{initializeApp},{getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut},{getFirestore,doc,getDoc}]=await Promise.all([
-    import('https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js'),
-    import('https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js'),
-    import('https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js')
-  ]);
-  const {getFunctions,httpsCallable}=await import('https://www.gstatic.com/firebasejs/11.10.0/firebase-functions.js');
-  const app=initializeApp(firebaseConfig);
-  const functions=getFunctions(app,'us-central1');
-  const bootstrap=httpsCallable(functions,'bootstrapPlayer');
-  const ranking=httpsCallable(functions,'getRanking');
-  window.cloudRanking=async()=>{const el=document.getElementById('onlineRanking');if(!el)return;el.textContent='Carregando ranking...';try{const r=await ranking({});el.replaceChildren();for(const [i,p] of r.data.players.entries()){const row=document.createElement('p');row.textContent=`${i+1}. ${p.username} | 🔄 ${p.rebirth} | 🎯 ${p.hits} | ⭐ ${p.level}`;el.append(row)}}catch(e){el.textContent='Ranking indisponível: '+e.message}};
-  auth=getAuth(app);db=getFirestore(app);
-  const login=async(signup)=>{
-    const username=nameInput.value.trim(),password=passInput.value;
-    if(!valid(username))return say('Use de 3 a 20 letras, números ou _.');
-    if(password.length<6)return say('A senha precisa ter pelo menos 6 caracteres.');
-    buttons(true);say('Aguarde...');
-    try{
-      if(signup){
-        const result=await createUserWithEmailAndPassword(auth,internalEmail(username),password);
-        await bootstrap({username});
-      }else await signInWithEmailAndPassword(auth,internalEmail(username),password);
-      say('Carregando sua conta...');
-    }catch(e){
-      const errors={'auth/email-already-in-use':'Esse nome já está em uso. Escolha outro.','auth/invalid-credential':'Nome de usuário ou senha incorretos.','auth/weak-password':'Escolha uma senha mais forte.','auth/network-request-failed':'Sem conexão. Confira sua internet.','permission-denied':'O Firestore bloqueou o salvamento. Confira as regras.'};
-      say(errors[e.code]||`Erro: ${e.code||e.message}`);
-    }finally{buttons(false)}
-  };
-  enter.onclick=()=>login(false);create.onclick=()=>login(true);
-  passInput.addEventListener('keydown',e=>{if(e.key==='Enter')login(false)});
-  // SEGURANÇA: salvamento direto bloqueado. Gameplay precisa migrar para chamadas de servidor.
-  window.cloudSave=()=>{};
-  onAuthStateChanged(auth,async(user)=>{
-    clearTimeout(saveTimer);const token=++sessionId;
-    currentUser=user;window.cloudReady=false;gate.hidden=false;
-    if(!user){window.setTargetState(initial());say('Entre ou crie sua conta para jogar.');return}
-    loading=true;say('☁️ Carregando progresso...');
-    try{
-      const snapshot=await getDoc(doc(db,'players',user.uid));
-      if(sessionId!==token)return;
-      if(!snapshot.exists()){
-        await bootstrap({username:user.email.split('@')[0]});
-        const fresh=await getDoc(doc(db,'players',user.uid));
-        window.setTargetState(fresh.data().state);
-      }else{
-        const data=snapshot.data();
-        const state=data.state||initial();
-        state.name=data.username||user.email.split('@')[0];
-        window.setTargetState(state);
-      }
-      if(sessionId!==token)return;
-      window.cloudReady=true;gate.hidden=true;
-      window.targetToast?.('⚠️ Modo de teste: moedas e XP desta sessão não são salvos.');
-      const status=document.getElementById('authStatus');if(status)status.textContent='Conectado: '+window.getTargetState().name;
-      window.targetToast?.('☁️ Bem-vindo, '+window.getTargetState().name+'!');
-    }catch(e){say('Não foi possível carregar a conta: '+(e.code||e.message))}
-    finally{loading=false}
-  });
-}catch(e){say('Firebase indisponível: '+e.message)}
+const normalized=s=>s.trim().toLowerCase(),valid=s=>/^[a-zA-Z0-9_]{3,20}$/.test(s),email=s=>`${normalized(s)}@players.ultimate-target.example.com`;
+let uid=null,username='',unsubPlayer=null,unsubRank=null,saveTimer=null,loaded=false,resetVersion=0,saving=false,dirty=false;
+const say=s=>notice.textContent=s;
+const buttons=busy=>{enter.disabled=busy;create.disabled=busy};
+window.cloudReady=false;
+window.cloudLogout=()=>auth.signOut();
+async function saveNow(){if(!loaded||!uid)return; if(saving){dirty=true;return} saving=true;try{const state=structuredClone(window.getTargetState());state.name=username;await updateDoc(doc(db,'players',uid),{state,updatedAt:serverTimestamp(),resetVersion});}catch(e){console.error('Falha ao salvar',e);window.targetToast?.('⚠️ Erro ao salvar: '+(e.code||e.message));}finally{saving=false;if(dirty){dirty=false;saveNow()}}}
+window.cloudSave=()=>{if(!loaded)return;clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,850)};
+window.cloudRanking=()=>{const el=document.getElementById('onlineRanking');if(!el)return;unsubRank?.();el.textContent='🏆 Carregando ranking global...';const q=query(collection(db,'players'),orderBy('state.hits','desc'),limit(25));unsubRank=onSnapshot(q,snap=>{el.replaceChildren();if(snap.empty){el.textContent='Ainda não há jogadores no ranking.';return}snap.docs.forEach((d,i)=>{const p=d.data(),r=document.createElement('p');r.textContent=`${i+1}. ${p.username||'Jogador'} | 🎯 ${p.state?.hits||0} | 🔄 ${p.state?.rebirth||0} | ⭐ ${p.state?.level||1}`;el.append(r)})},e=>{el.textContent='Ranking indisponível: '+e.code+'. Confira as regras e o índice do Firestore.'})};
+async function login(signup){const name=nameInput.value.trim(),password=passInput.value;if(!valid(name))return say('Use de 3 a 20 letras, números ou _.');if(password.length<6)return say('Senha com pelo menos 6 caracteres.');buttons(true);say('Aguarde...');try{if(signup){const result=await createUserWithEmailAndPassword(auth,email(name),password);await setDoc(doc(db,'players',result.user.uid),{username:name,usernameLower:normalized(name),state:{...initial(),name},resetVersion:0,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});}else await signInWithEmailAndPassword(auth,email(name),password);say('Carregando sua conta...')}catch(e){say(({'auth/email-already-in-use':'Esse nome já está em uso.','auth/invalid-credential':'Nome ou senha incorretos.','auth/weak-password':'Senha fraca.','permission-denied':'Firestore bloqueou o cadastro. Publique as regras do ZIP.'})[e.code]||'Erro: '+(e.code||e.message))}finally{buttons(false)}}
+enter.onclick=()=>login(false);create.onclick=()=>login(true);passInput.addEventListener('keydown',e=>{if(e.key==='Enter')login(false)});
+onAuthStateChanged(auth,async user=>{clearTimeout(saveTimer);unsubPlayer?.();unsubPlayer=null;unsubRank?.();unsubRank=null;loaded=false;uid=user?.uid||null;window.cloudReady=false;gate.hidden=false;if(!user){window.setTargetState(initial());say('Entre ou crie uma conta para jogar.');return}say('☁️ Carregando progresso...');try{let snapshot=await getDoc(doc(db,'players',user.uid));if(!snapshot.exists()){await new Promise(resolve=>setTimeout(resolve,1200));snapshot=await getDoc(doc(db,'players',user.uid));if(!snapshot.exists()){say('Conta ainda não preparada. Clique em Sair e entre novamente.');return}}if(auth.currentUser?.uid!==user.uid)return;const data=snapshot.data();username=data.username||user.email.split('@')[0];resetVersion=data.resetVersion||0;window.setTargetState({...initial(),...(data.state||{}),name:username});loaded=true;window.cloudReady=true;gate.hidden=true;const status=document.getElementById('authStatus');if(status)status.textContent='☁️ Conectado: '+username;window.targetToast?.('☁️ Bem-vindo, '+username+'!');unsubPlayer=onSnapshot(doc(db,'players',user.uid),snap=>{if(!snap.exists()||!loaded)return;const next=snap.data();if((next.resetVersion||0)!==resetVersion){resetVersion=next.resetVersion||0;clearTimeout(saveTimer);window.setTargetState({...initial(),...(next.state||{}),name:username});window.targetToast?.('♻️ Seu progresso foi atualizado pelo ADMIN.')}})}catch(e){say('Falha ao carregar: '+(e.code||e.message))}});
+window.addEventListener('pagehide',()=>{if(loaded&&uid&&!saving)saveNow()});
