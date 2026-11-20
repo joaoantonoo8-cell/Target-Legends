@@ -1,12 +1,28 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Substitua o UID abaixo pelo UID da conta Joao (Authentication > Users).
+    function isOwner() {
+      return request.auth != null && request.auth.uid == '1VKQY4YpScWwJnpPBVjp8J5J6Cw1';
+    }
+    function isAdmin(permission) {
+      return request.auth != null &&
+        (isOwner() || get(/databases/$(database)/documents/roles/$(request.auth.uid)).data[permission] == true);
+    }
     match /players/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && (request.auth.uid == userId || (userId != '1VKQY4YpScWwJnpPBVjp8J5J6Cw1' && isAdmin('managePlayers')));
+      allow create: if request.auth != null && (request.auth.uid == userId || (userId != '1VKQY4YpScWwJnpPBVjp8J5J6Cw1' && isAdmin('managePlayers')));
+      allow update: if request.auth != null && (request.auth.uid == userId || (userId != '1VKQY4YpScWwJnpPBVjp8J5J6Cw1' && isAdmin('managePlayers')));
+      allow delete: if false;
     }
-    // Ranking e eventos serão liberados somente com validação no servidor.
-    match /{document=**} {
-      allow read, write: if false;
+    match /roles/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isOwner());
+      allow create, update, delete: if isOwner() && userId != request.auth.uid;
     }
+    match /global/event {
+      allow read: if request.auth != null;
+      allow write: if isAdmin('manageEvents');
+    }
+    match /{document=**} { allow read, write: if false; }
   }
 }
