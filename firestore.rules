@@ -36,9 +36,9 @@ service cloud.firestore {
       allow delete: if owner() && uid != request.auth.uid;
     }
     match /global/{docId} {
-      allow read: if signed() && docId in ['event','announcement'];
-      allow create, update: if admin() && docId in ['event','announcement']
-        && (docId == 'event' ? (
+      allow read: if signed() && docId in ['event','announcement','reload'];
+      allow create, update: if admin() && docId in ['event','announcement','reload']
+        && (docId == 'reload' ? (request.resource.data.keys().hasOnly(['version','updatedAt']) && request.resource.data.version is string && request.resource.data.version.size() <= 30) : docId == 'event' ? (
           request.resource.data.keys().hasOnly(['kind','endsAt','multiplier','updatedAt'])
           && request.resource.data.kind in ['coins','luck','galaxy','none']
           && request.resource.data.endsAt is number
