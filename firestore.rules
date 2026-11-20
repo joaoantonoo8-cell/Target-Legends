@@ -2,7 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // SUBSTITUA pelo UID real da conta Joao antes de publicar.
-    function owner() { return request.auth != null && request.auth.uid == '1VKQY4YpScWwJnpPBVjp8J5J6Cw1'; }
+    function owner() { return request.auth != null && request.auth.uid == 'COLE_AQUI_O_UID_DO_JOAO'; }
     function admin() { return owner() || (request.auth != null && exists(/databases/$(database)/documents/roles/$(request.auth.uid)) && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.admin == true); }
     function signed() { return request.auth != null; }
     function validState(s) {
