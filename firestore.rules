@@ -39,10 +39,13 @@ service cloud.firestore {
       allow read: if signed() && docId in ['event','announcement'];
       allow create, update: if admin() && docId in ['event','announcement']
         && (docId == 'event' ? (
-          request.resource.data.keys().hasOnly(['kind','endsAt','updatedAt'])
+          request.resource.data.keys().hasOnly(['kind','endsAt','multiplier','updatedAt'])
           && request.resource.data.kind in ['coins','luck','galaxy','none']
           && request.resource.data.endsAt is number
           && request.resource.data.endsAt >= 0
+          && request.resource.data.multiplier is number
+          && request.resource.data.multiplier >= 1
+          && request.resource.data.multiplier <= 1000
         ) : (
           request.resource.data.keys().hasOnly(['message','updatedAt'])
           && request.resource.data.message is string
