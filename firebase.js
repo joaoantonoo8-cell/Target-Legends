@@ -5,6 +5,7 @@ import {getFirestore,doc,getDoc,setDoc,updateDoc,onSnapshot,collection,query,ord
 const app=getApps().length?getApp():initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
 const gate=document.getElementById('loginGate'),notice=document.getElementById('loginError'),nameInput=document.getElementById('loginUsername'),passInput=document.getElementById('loginPassword');
 const enter=document.getElementById('loginEnter'),create=document.getElementById('loginCreate');
+let adminPetUnsubscribe=null;onAuthStateChanged(auth,user=>{if(adminPetUnsubscribe){adminPetUnsubscribe();adminPetUnsubscribe=null;}window.adminPetAuthorized=false;if(user){adminPetUnsubscribe=onSnapshot(doc(db,'adminPets',user.uid),snap=>{window.adminPetAuthorized=snap.exists()&&snap.data()?.enabled===true;window.dispatchEvent(new Event('admin-pet-changed'))},err=>console.warn('Pet ADMIN:',err));}});
 const initial=()=>({name:'Jogador',money:0,rebirth:0,hits:0,combo:0,level:1,xp:0,totalxp:0,weapon:0,world:0,upgrades:{power:0,luck:0,xp:0,pet:0},pets:[],equipped:[],achieved:[],claimed:[],finalClaimed:false,mutations:[],settings:{sound:true},ownedWorlds:[0],ownedWeapons:[0]});
 const normalized=s=>s.trim().toLowerCase(),valid=s=>/^[a-zA-Z0-9_]{3,20}$/.test(s),email=s=>`${normalized(s)}@players.ultimate-target.example.com`;
 let uid=null,username='',unsubPlayer=null,unsubRank=null,saveTimer=null,loaded=false,resetVersion=0,saving=false,dirty=false;
