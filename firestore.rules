@@ -124,6 +124,21 @@ service cloud.firestore {
         && request.resource.data.lastSeen == request.time;
       allow delete: if signed() && request.auth.uid == playerUid;
     }
+    // Mensagens públicas por mundo, autenticadas; somente quem envia pode criar.
+    match /roomMessages/{messageId} {
+      allow read, list: if signed();
+      allow create: if signed()
+        && request.resource.data.keys().hasOnly(['uid','username','world','text','sentAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.username is string
+        && request.resource.data.username.size() >= 1 && request.resource.data.username.size() <= 20
+        && request.resource.data.world is int
+        && request.resource.data.world >= 0 && request.resource.data.world <= 4
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 180
+        && request.resource.data.sentAt == request.time;
+      allow update, delete: if false;
+    }
     match /{document=**} { allow read, write: if false; }
   }
 }
