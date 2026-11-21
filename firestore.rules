@@ -79,7 +79,7 @@ service cloud.firestore {
       allow create, update: if admin() && docId in ['event','announcement','reload']
         && (docId == 'reload' ? (request.resource.data.keys().hasOnly(['version','updatedAt']) && request.resource.data.version is string && request.resource.data.version.size() <= 30) : docId == 'event' ? (
           request.resource.data.keys().hasOnly(['kind','endsAt','multiplier','updatedAt'])
-          && request.resource.data.kind in ['coins','luck','aurora','none']
+          && request.resource.data.kind in ['coins','luck','aurora','galaxy','angel','ember','tide','clock','none']
           && request.resource.data.endsAt is number
           && request.resource.data.endsAt >= 0
           && request.resource.data.multiplier is number
