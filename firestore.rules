@@ -117,27 +117,53 @@ service cloud.firestore {
     match /presence/{playerUid} {
       allow read: if signed();
       allow create, update: if signed() && request.auth.uid == playerUid
-        && request.resource.data.keys().hasOnly(['username','world','weapon','lastSeen','x','y','shotAt'])
+        && request.resource.data.keys().hasOnly(['username','world','weapon','lastSeen','x','y','shotAt','roomId'])
         && request.resource.data.username is string && request.resource.data.username.size() <= 20
-        && request.resource.data.world is int && request.resource.data.world >= 0 && request.resource.data.world <= 4
-        && request.resource.data.weapon is int && request.resource.data.weapon >= 0 && request.resource.data.weapon <= 9
-        && request.resource.data.lastSeen == request.time;
+        && request.resource.data.world is int && request.resource.data.world >= 0 && request.resource.data.world <= 7
+        && request.resource.data.weapon is int && request.resource.data.weapon >= 0 && request.resource.data.weapon <= 12
+        && request.resource.data.lastSeen == request.time
+        && request.resource.data.roomId is string && request.resource.data.roomId.size() <= 90
+        && (request.resource.data.roomId == request.auth.uid || (exists(/databases/$(database)/documents/partyInvites/$(request.resource.data.roomId+'_'+request.auth.uid)) && get(/databases/$(database)/documents/partyInvites/$(request.resource.data.roomId+'_'+request.auth.uid)).data.status == 'accepted'));
       allow delete: if signed() && request.auth.uid == playerUid;
     }
     // Mensagens públicas por mundo, autenticadas; somente quem envia pode criar.
     match /roomMessages/{messageId} {
-      allow read, list: if signed();
+      allow read, list: if signed() && (resource.data.roomId == request.auth.uid || (exists(/databases/$(database)/documents/partyInvites/$(resource.data.roomId+'_'+request.auth.uid)) && get(/databases/$(database)/documents/partyInvites/$(resource.data.roomId+'_'+request.auth.uid)).data.status == 'accepted'));
       allow create: if signed()
-        && request.resource.data.keys().hasOnly(['uid','username','world','text','sentAt'])
+        && (request.resource.data.roomId == request.auth.uid || (exists(/databases/$(database)/documents/partyInvites/$(request.resource.data.roomId+'_'+request.auth.uid)) && get(/databases/$(database)/documents/partyInvites/$(request.resource.data.roomId+'_'+request.auth.uid)).data.status == 'accepted'))
+        && request.resource.data.keys().hasOnly(['uid','username','world','text','sentAt','roomId'])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.username is string
         && request.resource.data.username.size() >= 1 && request.resource.data.username.size() <= 20
         && request.resource.data.world is int
-        && request.resource.data.world >= 0 && request.resource.data.world <= 4
+        && request.resource.data.world >= 0 && request.resource.data.world <= 7
         && request.resource.data.text is string
         && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 180
-        && request.resource.data.sentAt == request.time;
+        && request.resource.data.sentAt == request.time
+        && request.resource.data.roomId is string
+        && request.resource.data.roomId.size() <= 90;
       allow update, delete: if false;
+    }
+
+    // Convite privado: somente quem recebe pode aceitar. Apenas amigos podem ser convidados.
+    match /partyInvites/{inviteId} {
+      allow get, list: if signed() && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+      allow create: if signed() && request.resource.data.keys().hasOnly(['from','to','roomId','world','status','createdAt','fromName','friendshipId'])
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.to is string && request.resource.data.to != request.auth.uid
+        && request.resource.data.world is int && request.resource.data.world >= 0 && request.resource.data.world <= 7
+        && request.resource.data.roomId == request.auth.uid
+        && inviteId == request.resource.data.from + '_' + request.resource.data.to
+        && request.resource.data.fromName is string && request.resource.data.fromName.size() <= 20
+        && request.resource.data.friendshipId is string
+        && request.resource.data.status == 'pending'
+        && exists(/databases/$(database)/documents/friendships/$(request.resource.data.friendshipId))
+        && get(/databases/$(database)/documents/friendships/$(request.resource.data.friendshipId)).data.status == 'accepted'
+        && get(/databases/$(database)/documents/friendships/$(request.resource.data.friendshipId)).data.members.hasAll([request.auth.uid,request.resource.data.to]);
+      allow update: if signed() && request.auth.uid == resource.data.to
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && resource.data.status == 'pending' && request.resource.data.status == 'accepted';
+      allow delete: if signed() && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
     }
     match /{document=**} { allow read, write: if false; }
   }
