@@ -6,7 +6,7 @@ service cloud.firestore {
     function admin() { return owner() || (request.auth != null && exists(/databases/$(database)/documents/roles/$(request.auth.uid)) && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.admin == true); }
     function signed() { return request.auth != null; }
     function validState(s) {
-      return s is map && s.money is number && s.money >= 0 && s.money <= 1000000000000
+      return s is map && s.money is number && s.money >= 0 && s.money <= 900000000000000
         && s.hits is int && s.hits >= 0 && s.hits <= 1000000000
         && s.rebirth is int && s.rebirth >= 0 && s.rebirth <= 1000000
         && s.level is int && s.level >= 1 && s.level <= 20;
@@ -23,10 +23,30 @@ service cloud.firestore {
         && request.resource.data.state.money == 0 && request.resource.data.state.hits == 0;
       // Spark: o cliente salva o próprio jogo. NÃO impede trapaças na economia.
       allow update: if admin() || (signed() && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state','updatedAt','resetVersion'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state','updatedAt','resetVersion','handle'])
         && request.resource.data.resetVersion == resource.data.resetVersion
-        && validState(request.resource.data.state));
+        && validState(request.resource.data.state)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['handle']) || (
+            !resource.data.keys().hasAny(['handle'])
+            && request.resource.data.handle is string
+            && request.resource.data.handle.matches('^[a-z0-9_]{3,20}$')
+            && getAfter(/databases/$(database)/documents/handles/$(request.resource.data.handle)).data.uid == uid
+        )));
       allow delete: if false;
+    }
+    // IDs únicos e permanentes. A reserva e o campo handle do perfil
+    // devem ser criados juntos no mesmo batch; um UID não pode escolher outro depois.
+    match /handles/{handleId} {
+      allow get: if signed();
+      allow list: if false;
+      allow create: if signed()
+        && handleId.matches('^[a-z0-9_]{3,20}$')
+        && request.resource.data.keys().hasOnly(['uid','createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && exists(/databases/$(database)/documents/players/$(request.auth.uid))
+        && !get(/databases/$(database)/documents/players/$(request.auth.uid)).data.keys().hasAny(['handle'])
+        && getAfter(/databases/$(database)/documents/players/$(request.auth.uid)).data.handle == handleId;
+      allow update, delete: if false;
     }
     // Só ADMIN escreve permissões do pet exclusivo. Jogadores podem consultar apenas a sua.
     match /adminPets/{uid} {
@@ -37,11 +57,22 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /roles/{uid} {
-      allow read: if signed() && (request.auth.uid == uid || owner());
+      allow get: if signed();
+      allow list: if false;
       allow create, update: if owner() && uid != request.auth.uid
         && request.resource.data.keys().hasOnly(['admin'])
         && request.resource.data.admin is bool;
       allow delete: if owner() && uid != request.auth.uid;
+    }
+    // Selos publicos: apenas o dono pode aprovar YouTuber ou Verificado.
+    // O selo de ADMIN vem de roles; o de DONO vem do UID fixo.
+    match /verifications/{uid} {
+      allow get: if signed();
+      allow list: if false;
+      allow create, update: if owner()
+        && request.resource.data.keys().hasOnly(['badge','updatedAt'])
+        && request.resource.data.badge in ['youtuber','verified','none'];
+      allow delete: if owner();
     }
     match /global/{docId} {
       allow read: if signed() && docId in ['event','announcement','reload'];
@@ -60,6 +91,38 @@ service cloud.firestore {
           && request.resource.data.message.size() <= 180
         ));
       allow delete: if false;
+    }
+
+    // Pedidos de amizade: dono do pedido envia; destinatário aceita.
+    match /friendships/{pairId} {
+      allow read, list: if signed() && request.auth.uid in resource.data.members;
+      allow create: if signed()
+        && request.resource.data.keys().hasOnly(['members','sender','receiver','status','senderName','receiverName','createdAt'])
+        && request.resource.data.members is list && request.resource.data.members.size() == 2
+        && request.resource.data.sender == request.auth.uid
+        && request.resource.data.sender != request.resource.data.receiver
+        && request.resource.data.members.hasAll([request.resource.data.sender,request.resource.data.receiver])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.senderName is string && request.resource.data.senderName.size() <= 20
+        && request.resource.data.receiverName is string && request.resource.data.receiverName.size() <= 20
+        && (pairId == request.resource.data.sender + '_' + request.resource.data.receiver
+            || pairId == request.resource.data.receiver + '_' + request.resource.data.sender);
+      allow update: if signed() && request.auth.uid == resource.data.receiver
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','acceptedAt'])
+        && request.resource.data.status == 'accepted';
+      allow delete: if signed() && request.auth.uid in resource.data.members;
+    }
+    // Dados temporários de presença, utilizados para jogar no mesmo mundo.
+    match /presence/{playerUid} {
+      allow read: if signed();
+      allow create, update: if signed() && request.auth.uid == playerUid
+        && request.resource.data.keys().hasOnly(['username','world','weapon','lastSeen','x','y','shotAt'])
+        && request.resource.data.username is string && request.resource.data.username.size() <= 20
+        && request.resource.data.world is int && request.resource.data.world >= 0 && request.resource.data.world <= 4
+        && request.resource.data.weapon is int && request.resource.data.weapon >= 0 && request.resource.data.weapon <= 9
+        && request.resource.data.lastSeen == request.time;
+      allow delete: if signed() && request.auth.uid == playerUid;
     }
     match /{document=**} { allow read, write: if false; }
   }
